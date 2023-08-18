@@ -101,21 +101,87 @@ e1000_transmit(struct mbuf *m)
   // the mbuf contains an ethernet frame; program it into
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
-  //
-  
+  // mbuf中包含一个以太网帧；将其编程到TX描述符环中，以便e1000发送。
+  // 存储一个指针以便在发送后释放。
+
+  acquire(&e1000_lock); // 获取e1000锁，确保线程安全
+  uint32 idx = regs[E1000_TDT]; // 获取当前可用的TX描述符的索引
+  struct tx_desc* desc = &tx_ring[idx]; // 获取当前TX描述符的指针
+
+  // 检查描述符状态是否为空闲（E1000_TXD_STAT_DD标志表示空闲）
+  if((desc->status & E1000_TXD_STAT_DD) == 0){
+    release(&e1000_lock); // 如果不为空闲，释放锁并返回错误
+    printf("buffer overflow\n");
+    return -1;
+  }
+
+  // 如果之前有存储在该位置的mbuf，释放它
+  if(tx_mbufs[idx]) mbuffree(tx_mbufs[idx]);
+
+  // 将mbuf的头部地址、长度以及命令信息写入TX描述符
+  desc->addr = (uint64)m->head;
+  desc->length = m->len;
+  desc->cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+
+  // 将mbuf指针存储到tx_mbufs数组中，以便在发送后释放
+  tx_mbufs[idx] = m;
+
+  // 更新TX描述符环的头指针，确保循环使用描述符
+  regs[E1000_TDT] = (idx + 1) % TX_RING_SIZE;
+
+  // 同步操作，确保对内存的修改在释放锁之前完成
+  __sync_synchronize();
+
+  release(&e1000_lock); // 释放e1000锁
   return 0;
 }
+
 
 static void
 e1000_recv(void)
 {
-  //
-  // Your code here.
-  //
-  // Check for packets that have arrived from the e1000
-  // Create and deliver an mbuf for each packet (using net_rx()).
-  //
+  // 计算要处理的下一个RX描述符的索引。
+  int idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+
+  // 获取指向当前RX描述符的指针。
+  struct rx_desc* desc = &rx_ring[idx];
+
+  // 处理所有接收到的数据包。
+  while(desc->status & E1000_RXD_STAT_DD){
+    acquire(&e1000_lock); // 获取e1000锁，确保线程安全
+
+    // 获取与当前RX描述符关联的mbuf。
+    struct mbuf *buf = rx_mbufs[idx];
+
+    // 释放mbuf并更新其长度。
+    mbufput(buf, desc->length);
+
+    // 分配一个新的mbuf来替换刚刚处理过的mbuf。
+    rx_mbufs[idx] = mbufalloc(0);
+    if (!rx_mbufs[idx])
+      panic("mbuf分配失败");
+
+    // 更新RX描述符的地址以指向新的mbuf。
+    desc->addr = (uint64) rx_mbufs[idx]->head;
+    desc->status = 0;
+
+    // 更新RX描述符的尾部索引以反映已处理的描述符。
+    regs[E1000_RDT] = idx;
+
+    // 同步内存，以确保更改对其他线程可见。
+    __sync_synchronize();
+
+    release(&e1000_lock); // 释放e1000锁
+
+    // 使用net_rx函数处理接收到的数据包。
+    net_rx(buf);
+
+    // 移至下一个RX描述符。
+    idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+    desc = &rx_ring[idx];
+  }
 }
+
 
 void
 e1000_intr(void)
