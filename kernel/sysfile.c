@@ -322,6 +322,34 @@ sys_open(void)
     return -1;
   }
 
+  // 检查并跟随符号链接
+  if(ip->type == T_SYMLINK) {
+    if(!(omode & O_NOFOLLOW)) { // 如果未设置 O_NOFOLLOW 标志
+      int cycle = 0;
+      char target[MAXPATH];
+    
+    // 循环跟随符号链接，最多尝试10次，防止循环链
+      while(ip->type == T_SYMLINK) {
+        if(cycle == 10) {
+          iunlockput(ip);
+          end_op();
+          return -1; // 超过最大循环次数
+      }
+      cycle++;
+      
+      memset(target, 0, sizeof(target)); // 初始化数组
+      readi(ip, 0, (uint64)target, 0, MAXPATH); // 从目标文件读取目标字符串
+      
+      iunlockput(ip); // 解锁并释放当前 inode
+      if((ip = namei(target)) == 0){
+        end_op();
+        return -1; // 目标不存在
+      }
+      ilock(ip); // 锁定新的目标 inode
+      }
+    }
+  }
+
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -484,3 +512,42 @@ sys_pipe(void)
   }
   return 0;
 }
+// 创建一个符号链接文件
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  memset(target, 0, sizeof(target)); // 初始化数组
+
+  // 从用户空间获取目标和路径字符串
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  struct inode *ip, *dp;
+  begin_op(); // 开始文件系统操作
+
+  // 检查目标是否存在，并确保目标不是目录
+  if((ip = namei(target)) != 0) {
+    if(ip->type == T_DIR) {
+      goto bad; // 跳到错误处理
+    }
+  }
+
+  // 创建符号链接文件的目标文件
+  if((dp = create(path, T_SYMLINK, 0, 0)) == 0) 
+    goto bad; // 跳到错误处理
+
+  // 将目标字符串写入目标文件的数据块
+  if(writei(dp, 0, (uint64)target, 0, MAXPATH) != MAXPATH) {
+    // panic("symlink write failed");
+    goto bad; // 跳到错误处理
+  }
+  iunlockput(dp); // 解锁并释放目录文件的inode
+  end_op(); // 结束文件系统操作
+  return 0;
+
+bad:
+  end_op(); // 结束文件系统操作
+  return -1;
+}
+

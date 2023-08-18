@@ -14,20 +14,22 @@ struct file {
 #define	mkdev(m,n)  ((uint)((m)<<16| (n)))
 
 // in-memory copy of an inode
+// In-memory inode structure
 struct inode {
-  uint dev;           // Device number
-  uint inum;          // Inode number
-  int ref;            // Reference count
-  struct sleeplock lock; // protects everything below here
-  int valid;          // inode has been read from disk?
+  uint dev;           // 设备号
+  uint inum;          // inode 编号
+  int ref;            // 引用计数
+  struct sleeplock lock; // 保护以下所有内容的睡眠锁
+  int valid;          // inode 是否已从磁盘读取？
 
-  short type;         // copy of disk inode
+  short type;         // 磁盘 inode 的副本
   short major;
   short minor;
   short nlink;
   uint size;
-  uint addrs[NDIRECT+1];
+  uint addrs[NDIRECT+2];   // 数据块地址数组，包括直接块、一级间接块和二级间接块
 };
+
 
 // map major device number to device functions.
 struct devsw {
