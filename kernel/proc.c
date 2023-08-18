@@ -126,6 +126,15 @@ found:
     release(&p->lock);
     return 0;
   }
+  
+  //分配一个用户系统调用信息结构页面
+  if((p->usyscall = (struct usyscall *)kalloc()) == 0){
+  // 如果分配失败，需要释放之前分配的资源并将进程状态重置
+    freeproc(p);// 释放进程的数据结构
+    release(&p->lock);// 释放进程锁，以便其他进程可以访问
+    return 0;// 返回0表示分配失败
+  }
+  memmove(p->usyscall, &p->pid, 8);
 
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
@@ -147,12 +156,17 @@ found:
 // free a proc structure and the data hanging from it,
 // including user pages.
 // p->lock must be held.
+//释放进程资源
 static void
 freeproc(struct proc *p)
 {
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  //释放用户系统调用信息结构页内存
+  if (p->usyscall)
+    kfree((void*)p->usyscall);
+  p->usyscall = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -168,12 +182,14 @@ freeproc(struct proc *p)
 
 // Create a user page table for a given process,
 // with no user memory, but with trampoline pages.
+extern pagetable_t kernel_pagetable;
+
 pagetable_t
 proc_pagetable(struct proc *p)
 {
   pagetable_t pagetable;
 
-  // An empty page table.
+  // 创建一个空页表
   pagetable = uvmcreate();
   if(pagetable == 0)
     return 0;
@@ -188,11 +204,22 @@ proc_pagetable(struct proc *p)
     return 0;
   }
 
-  // map the trapframe just below TRAMPOLINE, for trampoline.S.
+  // map the trapframe page just below the trampoline page, for
+  // trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
               (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);
+    return 0;
+  }
+  
+ // 映射用户系统调用信息结构页，位于陷阱帧页的下方
+  if(mappages(pagetable, USYSCALL, PGSIZE,
+               (uint64)(p->usyscall), PTE_R | PTE_U) < 0){
+               // 如果映射失败，撤销之前的映射并释放资源
+    uvmunmap(pagetable, TRAMPOLINE, 1, 0);// 撤销跳板代码的映射
+    uvmunmap(pagetable, TRAPFRAME, 1, 0);// 撤销陷阱帧页的映射
+    uvmfree(pagetable, 0);// 释放页表
     return 0;
   }
 
@@ -201,11 +228,13 @@ proc_pagetable(struct proc *p)
 
 // Free a process's page table, and free the
 // physical memory it refers to.
+//释放进程的页表和相关资
 void
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  uvmunmap(pagetable, USYSCALL, 1, 0);//撤销映射
   uvmfree(pagetable, sz);
 }
 

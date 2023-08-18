@@ -80,9 +80,57 @@ sys_sleep(void)
 int
 sys_pgaccess(void)
 {
-  // lab pgtbl: your code here.
-  return 0;
+  uint64 base;         // 虚拟地址基地址
+  uint64 mask;         // 掩码
+  int len;             // 位数
+  
+  pagetable_t pagetable = 0;   // 页表指针初始化为0
+  unsigned int procmask = 0;    // 进程掩码初始化为0
+  pte_t *pte;           // 页表项指针
+  
+  struct proc *p = myproc();   // 获取当前进程的指针
+  
+  // 获取参数
+  if(argaddr(0, &base) < 0 || argint(1, &len) < 0 || argaddr(2, &mask) < 0)
+    return -1;
+  if (len > sizeof(int)*8) 
+    len = sizeof(int)*8;
+ 
+  // 遍历每个位
+  for(int i=0; i<len; i++) {
+    pagetable = p->pagetable;   // 当前页表指针设置为进程的页表指针
+      
+    if(base >= MAXVA)
+      panic("pgaccess");
+ 
+    // 在不同的页表层次内遍历页表项
+    for(int level = 2; level > 0; level--) {
+      pte = &pagetable[PX(level, base)];   // 获取页表项指针
+      if(*pte & PTE_V) {   // 如果页表项有效
+        pagetable = (pagetable_t)PTE2PA(*pte);   // 进入下一级页表
+      } else {
+        return -1;   // 无效的页表项
+      }      
+    }
+    pte = &pagetable[PX(0, base)];   // 获取最底层页表项指针
+    if(pte == 0)
+      return -1;   // 无效的页表项
+    if((*pte & PTE_V) == 0)
+      return -1;   // 无效的页表项
+    if((*pte & PTE_U) == 0)
+      return -1;   // 非用户权限
+    if(*pte & PTE_A) {   // 已访问标志位被设置
+      procmask = procmask | (1L << i);   // 将对应位加入掩码
+      *pte = *pte & (~PTE_A);   // 清除已访问标志位
+    }
+    base += PGSIZE;   // 处理下一个页面
+  }
+ 
+  pagetable = p->pagetable;   // 恢复页表指针
+  // 将掩码复制到用户空间
+  return copyout(pagetable, mask, (char *) &procmask, sizeof(unsigned int));
 }
+
 #endif
 
 uint64
@@ -107,3 +155,6 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+

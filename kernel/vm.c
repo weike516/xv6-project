@@ -432,3 +432,29 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+void 
+printwalk(pagetable_t pagetable, uint level) {
+  char* prefix;
+  if (level == 2) prefix = "..";     // 第二级页表的前缀为".."，用于缩进
+  else if (level == 1) prefix = ".. .."; // 第一级页表的前缀为".. .."
+  else prefix = ".. .. ..";           // 第零级页表的前缀为".. .. .."
+  for(int i = 0; i < 512; i++){ // 每个页表有512项
+    pte_t pte = pagetable[i];  // 获取当前页表项的内容
+    if(pte & PTE_V){ // 检查页表项是否有效
+      uint64 pa = PTE2PA(pte); // 将虚拟地址转换为物理地址
+      printf("%s%d: pte %p pa %p\n", prefix, i, pte, pa); // 打印当前页表项信息
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){ // 检查是否有下一级页表
+         printwalk((pagetable_t)pa, level - 1); // 递归调用以打印下一级页表
+      }
+    }
+  }
+}
+
+
+void
+vmprint(pagetable_t pagetable) {
+  printf("page table %p\n", pagetable); // 打印当前页表的起始地址
+  printwalk(pagetable, 2); // 调用 printwalk 函数，从第二级页表开始遍历打印
+}
+

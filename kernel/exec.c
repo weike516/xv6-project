@@ -115,7 +115,9 @@ exec(char *path, char **argv)
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
-
+  
+  if (p->pid==1) vmprint(p->pagetable);//检查进程的PID是否为1（通常代表系统的init进程），如果是，则调用vmprint函数来打印该进程的页表信息。
+  
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:
