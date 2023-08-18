@@ -77,8 +77,39 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
-    yield();
+  if(which_dev == 2) {
+    // 判断是否设置了闹钟
+    if(p->alarm != 0){
+      // 增加持续时间计数
+      p->duration++;
+
+      // 如果持续时间达到闹钟设置的值
+      if(p->duration == p->alarm){
+        p->duration = 0;
+
+        // 如果之前没有保存过中断帧
+        if(p->alarm_trapframe == 0){
+          // 为保存中断帧分配内存
+          p->alarm_trapframe = kalloc();
+
+          // 复制当前中断帧到保存的中断帧
+          memmove(p->alarm_trapframe, p->trapframe, sizeof(struct trapframe));
+
+          // 修改保存的中断帧的 epc 字段为信号处理函数地址
+          p->trapframe->epc = p->handler;
+        } else{
+          // 如果之前已经保存过中断帧，则让出 CPU 的执行权
+          yield();    
+        }  
+      } else{
+        // 如果持续时间没有达到闹钟设置的值，则让出 CPU 的执行权
+        yield();
+      }
+    } else {
+      // 如果没有设置闹钟，则让出 CPU 的执行权
+      yield();
+    }
+  }
 
   usertrapret();
 }

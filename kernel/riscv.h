@@ -364,3 +364,14 @@ sfence_vma()
 
 typedef uint64 pte_t;
 typedef uint64 *pagetable_t; // 512 PTEs
+
+
+static inline uint64
+r_fp()
+{
+  uint64 i;
+  // 使用内联汇编将s0寄存器的值移动到变量i中
+  asm volatile("mv %0, s0" : "=r" (i));
+  return i;
+}
+

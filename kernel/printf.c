@@ -132,3 +132,16 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+void 
+backtrace(void)
+{
+  printf("backtrace:\n");
+  uint64 fp = r_fp();          // 获取当前函数的帧指针
+  uint64 bottom = PGROUNDUP(fp); // 获取帧指针所在堆栈帧的底部
+
+  while (fp < bottom) {       // 遍历整个堆栈帧
+    printf("%p\n", *((uint64*)(fp - 8))); // 打印帧指针之上的地址
+    fp = *((uint64*)(fp - 16)); // 获取上一个堆栈帧的帧指针
+  }
+}
+
