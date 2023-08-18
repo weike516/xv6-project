@@ -10,11 +10,32 @@
 #define STACK_SIZE  8192
 #define MAX_THREAD  4
 
-
-struct thread {
-  char       stack[STACK_SIZE]; /* the thread's stack */
-  int        state;             /* FREE, RUNNING, RUNNABLE */
+// 结构体定义，用于保存线程的上下文信息
+struct thread_context {
+  uint64 ra;    // 返回地址寄存器
+  uint64 sp;    // 栈指针寄存器
+  uint64 fp;    // 帧指针寄存器（s0）
+  uint64 s1;    // 通用寄存器 s1
+  uint64 s2;    // 通用寄存器 s2
+  uint64 s3;    // 通用寄存器 s3
+  uint64 s4;    // 通用寄存器 s4
+  uint64 s5;    // 通用寄存器 s5
+  uint64 s6;    // 通用寄存器 s6
+  uint64 s7;    // 通用寄存器 s7
+  uint64 s8;    // 通用寄存器 s8
+  uint64 s9;    // 通用寄存器 s9
+  uint64 s10;   // 通用寄存器 s10
+  uint64 s11;   // 通用寄存器 s11
 };
+
+// 结构体定义，表示一个线程的基本信息和状态
+struct thread {
+  char stack[STACK_SIZE];    // 线程的栈，用于保存局部变量和调用栈信息
+  int state;                 // 线程的状态，可能为 FREE、RUNNING、RUNNABLE 等
+  struct thread_context context;  // 保存线程的上下文信息的结构体
+};
+
+
 struct thread all_thread[MAX_THREAD];
 struct thread *current_thread;
 extern void thread_switch(uint64, uint64);
@@ -62,21 +83,29 @@ thread_schedule(void)
      * Invoke thread_switch to switch from t to next_thread:
      * thread_switch(??, ??);
      */
+    thread_switch((uint64)&t->context, (uint64)&next_thread->context);
   } else
     next_thread = 0;
 }
 
+// 函数定义，用于创建一个新线程
 void 
-thread_create(void (*func)())
-{
-  struct thread *t;
+thread_create(void (*func)()) {
+  struct thread *t;  // 声明指向 struct thread 结构体的指针
 
+  // 遍历线程数组以找到一个空闲的位置来创建新线程
   for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
-    if (t->state == FREE) break;
+    if (t->state == FREE) break;  // 找到空闲位置即退出循环
   }
-  t->state = RUNNABLE;
-  // YOUR CODE HERE
+  
+  t->state = RUNNABLE;  // 将线程状态设置为 RUNNABLE（可运行）
+
+  // 设置新线程的上下文信息
+  t->context.ra = (uint64)func;  // 设置返回地址寄存器为传入的函数地址
+  t->context.sp = (uint64)&t->stack[STACK_SIZE - 1];  // 设置栈指针寄存器为栈的顶部
+  t->context.fp = (uint64)&t->stack[STACK_SIZE - 1];  // 设置帧指针寄存器为栈的顶部
 }
+
 
 void 
 thread_yield(void)
