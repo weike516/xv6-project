@@ -21,12 +21,21 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+  char lock_name[8];
+} kmem[NCPU];
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  // 循环初始化每个 CPU 的 kmem 数据结构
+  for(int i = 0; i < NCPU; i++) {
+    // 使用 snprintf 将当前 CPU 的编号加入到 lock_name 中
+    snprintf(kmem[i].lock_name, sizeof(kmem[i].lock_name), "kmem_%d", i);
+    // 调用 initlock 初始化当前 CPU 的 kmem.lock 锁
+    initlock(&kmem[i].lock, kmem[i].lock_name);
+  }
+  
+  // 调用 freerange 初始化可用物理内存范围
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -43,23 +52,36 @@ freerange(void *pa_start, void *pa_end)
 // which normally should have been returned by a
 // call to kalloc().  (The exception is when
 // initializing the allocator; see kinit above.)
+
+
 void
 kfree(void *pa)
 {
   struct run *r;
-
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+  
+  // 首先进行一些检查，确保传入的物理地址是合法的
+  if (((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
+  // 将释放的内存填充为垃圾值，以便在使用后能够更容易地发现
   memset(pa, 1, PGSIZE);
 
+  // 将物理地址强制类型转换为 struct run 类型，struct run 用于表示空闲内存块
   r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  // 关闭中断，确保原子操作
+  push_off();
+  // 获取当前 CPU 的编号
+  int cpu_id = cpuid();
+  // 获取当前 CPU 的 kmem 锁，保护内存分配数据结构
+  acquire(&kmem[cpu_id].lock);
+  // 将释放的内存块添加到当前 CPU 的空闲链表中
+  r->next = kmem[cpu_id].freelist;
+  kmem[cpu_id].freelist = r;
+  // 释放当前 CPU 的 kmem 锁
+  release(&kmem[cpu_id].lock);
+  // 恢复中断
+  pop_off();
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -68,15 +90,41 @@ kfree(void *pa)
 void *
 kalloc(void)
 {
-  struct run *r;
+    struct run *r;
 
-  acquire(&kmem.lock);
-  r = kmem.freelist;
-  if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
+    // 关闭中断，确保原子操作
+    push_off();
+    // 获取当前 CPU 的编号
+    int cpu_id = cpuid();
+    // 获取当前 CPU 的 kmem 锁，保护内存分配数据结构
+    acquire(&kmem[cpu_id].lock);
+    // 从当前 CPU 的空闲链表中取出一个空闲内存块
+    r = kmem[cpu_id].freelist;
+    if(r)
+       kmem[cpu_id].freelist = r->next;
+    // 释放当前 CPU 的 kmem 锁
+    release(&kmem[cpu_id].lock);
+    // 恢复中断
+    pop_off();
 
-  if(r)
-    memset((char*)r, 5, PGSIZE); // fill with junk
-  return (void*)r;
+    // 如果当前 CPU 没有空闲内存块，从其他 CPU 的空闲链表中偷取一个
+    if(!r) {
+        for(int i=0; i<NCPU; i++) {
+           acquire(&kmem[i].lock);
+           r = kmem[i].freelist;
+           if(r) {
+              kmem[i].freelist = r->next;
+              release(&kmem[i].lock);
+              break;
+           }
+           release(&kmem[i].lock);
+        }
+    }
+
+    // 如果成功获得内存块，将其填充为垃圾值
+    if(r)
+        memset((char*)r, 5, PGSIZE);
+
+    return (void*)r; // 返回分配的内存块的指针
 }
+
