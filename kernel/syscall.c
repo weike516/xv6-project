@@ -105,6 +105,10 @@ extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
 
+extern uint64 sys_trace(void);
+extern uint64 sys_sysinfo(void);
+
+
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
 [SYS_exit]    sys_exit,
@@ -127,20 +131,60 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
+[SYS_sysinfo] sys_sysinfo,
 };
 
-void
+static char *syscall_name[] = {
+[SYS_fork]    "fork",
+[SYS_exit]    "exit",
+[SYS_wait]    "wait",
+[SYS_pipe]    "pipe",
+[SYS_read]    "read",
+[SYS_kill]    "kill",
+[SYS_exec]    "exec",
+[SYS_fstat]   "fstat",
+[SYS_chdir]   "chdir",
+[SYS_dup]     "dup",
+[SYS_getpid]  "getpid",
+[SYS_sbrk]    "sbrk",
+[SYS_sleep]   "sleep",
+[SYS_uptime]  "uptime",
+[SYS_open]    "open",
+[SYS_write]   "write",
+[SYS_mknod]   "mknod",
+[SYS_unlink]  "unlink",
+[SYS_link]    "link",
+[SYS_mkdir]   "mkdir",
+[SYS_close]   "close",
+[SYS_trace]   "trace",
+[SYS_sysinfo] "sysinfo",
+};
+
+// 定义 syscall 函数，处理系统调用
+void 
 syscall(void)
 {
   int num;
-  struct proc *p = myproc();
+  struct proc *p = myproc(); // 获取当前进程的指针
 
-  num = p->trapframe->a7;
+  num = p->trapframe->a7; // 从陷阱帧中获取系统调用编号
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
-    p->trapframe->a0 = syscalls[num]();
+    // 如果系统调用编号有效且对应的函数存在
+    // 使用 num 查找系统调用函数并调用它
+    // 将返回值存储在 p->trapframe->a0 中
+    uint64 ret = syscalls[num]();
+    p->trapframe->a0 = ret;
+
+    // 如果当前进程启用了跟踪该系统调用，打印相关信息
+    if((1 << num) & p->trace_mask){
+      printf("%d: syscall %s -> %d\n", p->pid, syscall_name[num], ret);
+    }
   } else {
-    printf("%d %s: unknown sys call %d\n",
+    // 无效的系统调用编号，打印错误信息
+    printf("%d %s: 未知系统调用 %d\n",
             p->pid, p->name, num);
-    p->trapframe->a0 = -1;
+    p->trapframe->a0 = -1; // 将错误返回值存储在 a0 中
   }
 }
+

@@ -96,13 +96,15 @@ struct proc {
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
 
-  // these are private to the process, so p->lock need not be held.
-  uint64 kstack;               // Virtual address of kernel stack
-  uint64 sz;                   // Size of process memory (bytes)
-  pagetable_t pagetable;       // User page table
-  struct trapframe *trapframe; // data page for trampoline.S
-  struct context context;      // swtch() here to run process
-  struct file *ofile[NOFILE];  // Open files
-  struct inode *cwd;           // Current directory
-  char name[16];               // Process name (debugging)
+  // 这些对进程私有，所以不需要持有 p->lock。
+  uint64 kstack;               // 内核堆栈的虚拟地址
+  uint64 sz;                   // 进程内存大小（字节）
+  pagetable_t pagetable;       // 用户页表
+  struct trapframe *trapframe; // trampoline.S 的数据页
+  struct context context;      // 用于在进程间切换的上下文
+  struct file *ofile[NOFILE];  // 打开的文件
+  struct inode *cwd;           // 当前目录
+  struct usyscall *usyscall;   // 与内核共享的系统调用数据
+  char name[16];               // 进程名称（用于调试）
+  uint trace_mask;             // 跟踪掩码
 };

@@ -269,33 +269,36 @@ growproc(int n)
 
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
-int
+int 
 fork(void)
 {
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
 
-  // Allocate process.
+  // 分配进程。
   if((np = allocproc()) == 0){
     return -1;
   }
 
-  // Copy user memory from parent to child.
+  // 从父进程复制用户内存到子进程。
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
     return -1;
   }
-  np->sz = p->sz;
+  np->sz = p->sz;//将子进程的内存大小 sz 设置为与父进程相同
 
-  // copy saved user registers.
+  np->parent = p;//将子进程的父进程指针 parent 设置为指向当前进程 p
+  np->trace_mask = p->trace_mask;//将子进程的 trace_mask 属性设置为与父进程相同
+
+  // 复制保存的用户寄存器。
   *(np->trapframe) = *(p->trapframe);
 
-  // Cause fork to return 0 in the child.
+  // 让子进程返回 0。
   np->trapframe->a0 = 0;
 
-  // increment reference counts on open file descriptors.
+  // 增加打开文件描述符的引用计数。
   for(i = 0; i < NOFILE; i++)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
@@ -317,6 +320,7 @@ fork(void)
 
   return pid;
 }
+
 
 // Pass p's abandoned children to init.
 // Caller must hold wait_lock.
@@ -654,3 +658,29 @@ procdump(void)
     printf("\n");
   }
 }
+
+
+uint64 nproc(void)
+{
+  uint64 counter = 0; // 初始化一个计数器，用于统计活动进程数量
+  struct proc *p; // 定义指向进程控制块（PCB）的指针
+  
+  // 遍历从 proc 到 &proc[NPROC] 之间的进程控制块
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock); // 获取该进程的锁，防止其他线程同时修改该进程的状态
+    
+    if(p->state != UNUSED) {
+      ++counter; // 如果进程的状态不是 UNUSED，增加计数器的值
+    }
+    
+    release(&p->lock); // 释放进程的锁
+  }
+  
+  return counter; // 返回活动进程的数量
+}
+
+
+
+
+
+
